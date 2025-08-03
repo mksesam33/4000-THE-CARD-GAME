@@ -1,0 +1,17 @@
+name: four_thousand_game
+description: 4000 Card Game Full Prototype
+version: 1.0.0
+environment:
+  sdk: ">=2.12.0 <3.0.0"
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.0.0
+  intl: ^0.17.0
+  firebase_core: ^2.4.0
+  cloud_firestore: ^4.3.0
+  google_mobile_ads: ^2.0.0
+flutter:
+  assets:
+    - assets/images/
+    - assets/sounds/

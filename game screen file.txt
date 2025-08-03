@@ -1,0 +1,107 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+import '../game_logic.dart';
+
+class GameScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<GameLogic>(
+      builder: (context, game, child) {
+        return Scaffold(
+          appBar: AppBar(
+            title: Text('4000 Card Game', style: TextStyle(color: Colors.white)),
+            backgroundColor: Colors.red[900],
+            actions: [
+              IconButton(
+                icon: Icon(Icons.network_check),
+                onPressed: () {
+                  if (game.isOnline) {
+                    game.isOnline = false;
+                    game.gameId = null;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Switched to Offline Mode')),
+                    );
+                  } else {
+                    game.startOnlineGame();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Started Online Game: ${game.gameId}')),
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
+          body: Column(
+            children: [
+              if (game.bannerAd != null)
+                Container(
+                  height: 50,
+                  child: AdWidget(ad: game.bannerAd!),
+                ),
+              Text(
+                'Joker: ${game.joker ?? "Not Selected"}',
+                style: TextStyle(fontSize: 20, color: Colors.blue[900]),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  game.dealCards();
+                  game.selectJoker();
+                },
+                child: Text('Deal Cards / Select Joker'),
+              ),
+              ElevatedButton(
+                onPressed: game.isOnline
+                    ? null
+                    : () {
+                        for (int i = 1; i < 4; i++) {
+                          game.aiPlay(i);
+                        }
+                      },
+                child: Text('AI Play'),
+              ),
+              DragTarget<List<String>>(
+                builder: (context, candidateData, rejectedData) {
+                  return Container(
+                    height: 100,
+                    color: Colors.blue[100],
+                    child: Center(child: Text('Drop Cards Here')),
+                  );
+                },
+                onAccept: (cards) {
+                  if (game.isValidMeld(cards)) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Valid Meld!')),
+                    );
+                  }
+                },
+              ),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: game.playerHands[0].length,
+                  itemBuilder: (context, index) {
+                    return Draggable<List<String>>(
+                      data: [game.playerHands[0][index]],
+                      child: Card(
+                        child: Text(game.playerHands[0][index]),
+                      ),
+                      feedback: Card(
+                        child: Text(game.playerHands[0][index]),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              Text('Score: ${game.scores['player'] ?? 0}', style: TextStyle(fontSize: 18)),
+              if (game.isOnline)
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Text('Game ID: ${game.gameId ?? "N/A"}'),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}

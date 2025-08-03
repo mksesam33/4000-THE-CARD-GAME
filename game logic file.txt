@@ -1,0 +1,204 @@
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'dart:math';
+
+class GameLogic with ChangeNotifier {
+  List<String> deck = [];
+  List<List<String>> playerHands = [[], [], [], []];
+  List<String> bank = [];
+  List<String> drawPile = [];
+  String? joker;
+  Map<String, double> scores = {};
+  String gameMode = 'offline';
+  String? gameId;
+  bool isOnline = false;
+  BannerAd? bannerAd;
+
+  GameLogic() {
+    _loadAd();
+  }
+
+  void _loadAd() {
+    bannerAd = BannerAd(
+      adUnitId: 'ca-app-pub-3940256099942544/6300978111', // टेस्ट ID
+      size: AdSize.banner,
+      request: AdRequest(),
+      listener: BannerAdListener(
+        onAdLoaded: (_) => notifyListeners(),
+        onAdFailedToLoad: (ad, error) => ad.dispose(),
+      ),
+    )..load();
+  }
+
+  void generateDeck() {
+    deck = [];
+    List<String> suits = ['♠', '♥', '♦', '♣'];
+    List<String> ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+    for (var suit in suits) {
+      for (var rank in ranks) {
+        deck.add('$rank$suit');
+      }
+    }
+    deck = [...deck, ...deck]; // दो डेक
+  }
+
+  void dealCards() {
+    generateDeck();
+    deck.shuffle();
+    playerHands = [[], [], [], []];
+    bank = [];
+    drawPile = [];
+    for (int i = 0; i < 13; i++) {
+      playerHands[1].add(deck[i * 5]);
+      playerHands[2].add(deck[i * 5 + 1]);
+      playerHands[3].add(deck[i * 5 + 2]);
+      bank.add(deck[i * 5 + 3]);
+      playerHands[0].add(deck[i * 5 + 4]);
+    }
+    drawPile.addAll(deck.sublist(65));
+    if (isOnline) {
+      _syncGameState();
+    }
+    notifyListeners();
+  }
+
+  String selectJoker() {
+    String card = drawPile.removeAt(0);
+    joker = getNextCardNumber(card);
+    if (isOnline) {
+      _syncGameState();
+    }
+    notifyListeners();
+    return joker!;
+  }
+
+  String getNextCardNumber(String card) {
+    List<String> ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+    String rank = card.substring(0, card.length - 1);
+    int index = ranks.indexOf(rank);
+    return ranks[(index + 1) % 13];
+  }
+
+  bool isValidMeld(List<String> cards) {
+    if (cards.length < 3) return false;
+    bool isSequence = true;
+    List<String> ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+    List<int> rankIndices = [];
+    String suit = cards[0].substring(cards[0].length - 1);
+
+    for (var card in cards) {
+      String rank = card.substring(0, card.length - 1);
+      if (card != joker && card.substring(card.length - 1) != suit) {
+        isSequence = false;
+        break;
+      }
+      rankIndices.add(ranks.indexOf(rank));
+    }
+
+    if (isSequence) {
+      rankIndices.sort();
+      for (int i = 1; i < rankIndices.length; i++) {
+        if (rankIndices[i] != rankIndices[i - 1] + 1) {
+          isSequence = false;
+          break;
+        }
+      }
+    }
+
+    bool isSet = true;
+    String rank = cards[0].substring(0, card.length - 1);
+    for (var card in cards) {
+      if (card != joker && card.substring(0, card.length - 1) != rank) {
+        isSet = false;
+        break;
+      }
+    }
+
+    if (isSequence || isSet) {
+      calculateScore(cards);
+      if (isOnline) {
+        _syncGameState();
+      }
+      return true;
+    }
+    return false;
+  }
+
+  void calculateScore(List<String> cards) {
+    double score = 0;
+    for (var card in cards) {
+      String rank = card.substring(0, card.length - 1);
+      if (rank == joker) {
+        score += 1;
+      } else if (['2', '3', '4', '5', '6', '7'].contains(rank)) {
+        score += 0.5;
+      } else if (['8', '9', '10', 'J', 'Q', 'K'].contains(rank)) {
+        score += 1;
+      } else if (rank == 'A') {
+        score += 1.5;
+      }
+    }
+    if (cards.length >= 7) score += 100;
+    if (cards.length >= 13 && isValidSequence(cards)) score += 400;
+    scores['player'] = (scores['player'] ?? 0) + score;
+    notifyListeners();
+  }
+
+  bool isValidSequence(List<String> cards) {
+    return cards.length == 13;
+  }
+
+  void startOnlineGame() async {
+    isOnline = true;
+    gameId = Random().nextInt(1000000).toString();
+    await FirebaseFirestore.instance.collection('games').doc(gameId).set({
+      'deck': deck,
+      'playerHands': playerHands,
+      'bank': bank,
+      'drawPile': drawPile,
+      'joker': joker,
+      'scores': scores,
+      'createdAt': Timestamp.now(),
+    });
+    notifyListeners();
+  }
+
+  void _syncGameState() async {
+    if (isOnline && gameId != null) {
+      await FirebaseFirestore.instance.collection('games').doc(gameId).update({
+        'deck': deck,
+        'playerHands': playerHands,
+        'bank': bank,
+        'drawPile': drawPile,
+        'joker': joker,
+        'scores': scores,
+      });
+    }
+  }
+
+  void joinOnlineGame(String id) async {
+    isOnline = true;
+    gameId = id;
+    DocumentSnapshot game = await FirebaseFirestore.instance.collection('games').doc(id).get();
+    if (game.exists) {
+      deck = List<String>.from(game['deck']);
+      playerHands = (game['playerHands'] as List).map((hand) => List<String>.from(hand)).toList();
+      bank = List<String>.from(game['bank']);
+      drawPile = List<String>.from(game['drawPile']);
+      joker = game['joker'];
+      scores = Map<String, double>.from(game['scores']);
+      notifyListeners();
+    }
+  }
+
+  void aiPlay(int playerIndex) {
+    if (playerHands[playerIndex].isNotEmpty) {
+      List<String> meld = playerHands[playerIndex].take(3).toList();
+      if (isValidMeld(meld)) {
+        playerHands[playerIndex].removeWhere((card) => meld.contains(card));
+        notifyListeners();
+      }
+    }
+  }
+}
